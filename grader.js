@@ -21,9 +21,11 @@ References:
    - https://developer.mozilla.org/en-US/docs/JSON#JSON_in_Firefox_2
 */
 
+var util = require('util');
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -40,16 +42,35 @@ var cheerioHtmlFile = function(htmlfile) {
     return cheerio.load(fs.readFileSync(htmlfile));
 };
 
+var buildfn = function(urlstr, checksfile) {
+    var response2cheerio = function(result, reponse) {
+        if (result instanceof Error) {
+            console.log("%s does not exist. Exiting.", urlstr);
+            process.exit(1);
+        } else {
+            var source = cheerio.load(result);
+            var checkJson = check(source, checksfile);
+            var outJson = JSON.stringify(checkJson, null, 4);
+            console.log(outJson)
+        }
+    };
+    return response2cheerio;
+};
+
+var cheerioURL = function(url, checksfile) {
+    var response2cheerio = buildfn(url, checksfile);
+    return rest.get(url).on('complete', response2cheerio);
+};
+
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
-var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
+var check = function(source, checksfile) {
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
-        var present = $(checks[ii]).length > 0;
+        var present = source(checks[ii]).length > 0;
         out[checks[ii]] = present;
     }
     return out;
@@ -65,10 +86,15 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <url_path>', 'URL for index.html')
         .parse(process.argv)
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson)
+    if (!program.url) {
+        var checkJson = check(cheerioHtmlFile(program.file), program.checks);
+        var outJson = JSON.stringify(checkJson, null, 4);
+        console.log(outJson)
+    } else {
+        cheerioURL(program.url, program.checks);
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
